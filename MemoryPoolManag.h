@@ -30,7 +30,7 @@ private:
 	void* MallocMemory(const size_t& nMallocMemorySize);
 
 	// 将申请到的内存块分配到管理类中
-	void DistributeMemoryToChunk( BYTE* pOrignMemory, const size_t& nBlockCount, const size_t& nTotalMallocMemorySize );
+	void DistributeMemoryToChunk( BYTE* pOrignMemory, const size_t& nBlockCount );
 
 
 private:
@@ -47,8 +47,18 @@ public:
 	//
 	/////////////////////////////////////////////////////////////////////////
 	void* GetMemory(const size_t& nNeedMemorySize);
-	void FreeMemory( void* pMemory );
+	void FreeMemory( MemoryChunk* pMemory );
 
+private:
+	//////////////////////////////////////////////////////////////////////////
+	//
+	//	修改每块内存块是否是被占用状态
+	//
+	////////////////////////////////////////////////////////////////////////
+	void ChangeChunkStat(MemoryChunk* pChunk, int nBlockCount, bool bAllocated);
+	void ReCalcAllBlockSize();
+	MemoryChunk* SkipChunks(MemoryChunk* pChunk, int nSkipChunkCount);
+	MemoryChunk* IsAllocated( MemoryChunk* pChunk, size_t nNeedBlockCount );
 private:
 	// 内存管理链表集合
 	MemoryChunk* m_pFirstChunk;
@@ -58,6 +68,8 @@ private:
 
 	// 所有申请原始内存块大小
 	size_t m_nMemoryPoolSize;
+	// 所有内存块个数
+	size_t m_nMemoryPoolBlockSize;
 	// 每块原始内存大小
 	size_t m_nOrignBlockSize;	
 };

@@ -16,6 +16,7 @@ struct MemoryChunk
 		m_nUsed = 0;
 		m_pData = NULL;
 		m_pNext = NULL;
+		m_bIsBlockHeader = false;
 		m_bIsAllocate = false;
 	}
 
@@ -25,6 +26,7 @@ struct MemoryChunk
 		m_nUsed = 0;
 		m_pData = NULL;
 		m_pNext = NULL;
+		m_bIsBlockHeader = false;
 		m_bIsAllocate = false;
 	}
 
@@ -35,6 +37,8 @@ struct MemoryChunk
 	size_t			m_nUsed;
 	// 数据块
 	BYTE*			m_pData;	
+	// 是否是数据块头指针（一整块内存）
+	bool			m_bIsBlockHeader;
 	// 是否被申请
 	bool			m_bIsAllocate;
 	// 下一块数据
