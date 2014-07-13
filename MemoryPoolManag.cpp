@@ -1,6 +1,5 @@
 #include "StdAfx.h"
 #include "MemoryPoolManag.h"
-#include "MemoryChunk.h"
 
 
 CMemoryPoolManag::CMemoryPoolManag( const size_t& nMemoryPoolSize, const size_t& nOrignBlockSize )
@@ -8,7 +7,6 @@ CMemoryPoolManag::CMemoryPoolManag( const size_t& nMemoryPoolSize, const size_t&
 	, m_nMemoryPoolBlockSize(0)
 	, m_nOrignBlockSize(nOrignBlockSize)
 	, m_pFirstChunk(NULL)
-	, m_pCurrentChunk(NULL)
 	, m_pLastChunk(NULL)
 {
 	Initial(nMemoryPoolSize);
@@ -73,13 +71,18 @@ void* CMemoryPoolManag::MallocMemory( const size_t& nMallocMemorySize )
 	m_nMemoryPoolBlockSize += nBlockCount;
 	std::memset(pOrignMemory, 0, nTotalMallocMemorySize);
 
-	// 5.将原始内存分配到内存管理块中
-	DistributeMemoryToChunk(pOrignMemory, nBlockCount);
+	// 5.将原始内存分配到内存管理块中(返回第一块管理类）
+	MemoryChunk* pFirst = DistributeMemoryToChunk(pOrignMemory, nBlockCount, nTotalMallocMemorySize);
+	if (pFirst != m_pFirstChunk)
+	{
+		pFirst->m_nUsed = nTotalMallocMemorySize;
+		return pFirst->m_pData;
+	}
 
-	return pOrignMemory;
+	return m_pFirstChunk->m_pData;
 }
 
-void CMemoryPoolManag::DistributeMemoryToChunk( BYTE* pOrignMemory, const size_t& nBlockCount )
+MemoryChunk* CMemoryPoolManag::DistributeMemoryToChunk( BYTE* pOrignMemory, const size_t& nBlockCount, const size_t& nTotalMallocMemorySize )
 {
 	// 1.分配管理块类
 	MemoryChunk* pChunks = (MemoryChunk*)malloc(nBlockCount*sizeof(MemoryChunk));
@@ -89,22 +92,24 @@ void CMemoryPoolManag::DistributeMemoryToChunk( BYTE* pOrignMemory, const size_t
 	MemoryChunk* pChunk = NULL;
 	for (size_t i = 0; i < nBlockCount; ++i)
 	{
+		// 每块内存管理的内存起始地址(即偏移量)		
 		pChunk = &pChunks[i];
 		assert(pChunk != NULL);
+		size_t nOffset = i*m_nOrignBlockSize;
 		pChunk->Initial();
+		pChunk->m_pData = &pOrignMemory[nOffset];
+		pChunk->m_nSize = nTotalMallocMemorySize - nOffset;
 
 		if (0 == i)
 		{
 			// 因为pOrignMemory是连续内存块，所以记录头指针，在释放资源的时候，free(pChunk->data)即可
-			pChunk->m_bIsBlockHeader = true;
-			pChunk->m_pData = pOrignMemory;
+			pChunk->m_bIsBlockHeader = true;			
 		}
 
 		if (NULL == m_pFirstChunk)
 		{			 
 			// 内存池初始化时进入，增加内存块申请时不会进入
-			m_pFirstChunk = pChunk;
-			//m_pCurrentChunk = pChunk;
+			m_pFirstChunk = pChunk;			
 		}
 		else
 		{
@@ -114,8 +119,10 @@ void CMemoryPoolManag::DistributeMemoryToChunk( BYTE* pOrignMemory, const size_t
 		m_pLastChunk = pChunk;
 	}
 
+	// 返回分配内存后第一块内存管理类
+	return &pChunks[0];
 	// 3.重新计算所有内存管理类中的管理的内存块大小
-	ReCalcAllBlockSize();
+	//ReCalcAllBlockSize();要保证返回给用户连续的内存块
 }
 
 void* CMemoryPoolManag::GetMemory( const size_t& nNeedMemorySize )
@@ -137,44 +144,31 @@ void* CMemoryPoolManag::GetMemory( const size_t& nNeedMemorySize )
 				continue;
 			}
 
-			// 已经有连续nNeedBlockCount块的内存被分配
-			ChangeChunkStat(pChunk, nNeedBlockCount, true);
-			pChunk->m_nUsed = nNeedBlockCount*m_nOrignBlockSize;
-			// 返回内存块指针
+			// 找到可用的连续内存空间
+			pChunk->m_nUsed = nNeedBlockCount*m_nOrignBlockSize;			
 			return pChunk->m_pData;
 		}
 		else
 		{
 			// 内存不够，跳转到下一个可用的内存管理块中(计算已经用了多少内存)
 			size_t nSkipChunkCount = GetBlockCount(pChunk->m_nUsed);			
-			SkipChunks(pChunk, nSkipChunkCount);
+			pChunk = SkipChunks(pChunk, nSkipChunkCount);
 		}
 	}
 
 	// 重新分配内存（增量式）
-	return MallocMemory(nNeedMemorySize);	
+	return MallocMemory(nNeedMemorySize);
 }
 
-void CMemoryPoolManag::FreeMemory( MemoryChunk* pMemory )
+void CMemoryPoolManag::FreeMemory( void* pMemory )
 {
-	// 计算要释放的内存块数
-	size_t nFreeBlockCount = GetBlockCount(pMemory->m_nUsed);
-	// ->改变占用标志
-	ChangeChunkStat(pMemory, nFreeBlockCount, false);
+	// 找到管理内存的类
+	MemoryChunk* pTemp = FindMemoryBlockByData(pMemory);
+	assert(pTemp != NULL);
+	
 	// ->将数据置零
-	memset(pMemory, 0, pMemory->m_nUsed);
-}
-
-void CMemoryPoolManag::ChangeChunkStat(MemoryChunk* pChunk, int nBlockCount, bool bAllocated)
-{
-	MemoryChunk* pTemp = NULL;
-	pTemp = pChunk;
-	for (size_t i = 0; i < nBlockCount; ++i)
-	{
-		assert(pTemp != NULL);
-		pTemp->m_bIsAllocate = bAllocated;
-		pTemp = pTemp->m_pNext;
-	}
+	memset(pMemory, 0, pTemp->m_nUsed);
+	pTemp->m_nUsed = 0;
 }
 
 void CMemoryPoolManag::ReCalcAllBlockSize()
@@ -192,6 +186,10 @@ void CMemoryPoolManag::ReCalcAllBlockSize()
 
 MemoryChunk* CMemoryPoolManag::SkipChunks(MemoryChunk* pChunk, int nSkipChunkCount)
 {
+	if (0 == nSkipChunkCount)
+	{
+		return pChunk->m_pNext;
+	}
 	for (size_t i = 0; i < nSkipChunkCount; ++i)
 	{
 		assert(pChunk != NULL);
@@ -205,7 +203,22 @@ MemoryChunk* CMemoryPoolManag::IsAllocated( MemoryChunk* pChunk, size_t nNeedBlo
 	MemoryChunk* pTemp = pChunk;
 	for (size_t i = 0; i < nNeedBlockCount; ++i)
 	{
-		if (pTemp->m_bIsAllocate)
+		if (pTemp->m_nUsed != 0)
+		{
+			return pTemp;
+		}
+		pTemp = pTemp->m_pNext;
+	}
+
+	return NULL;
+}
+
+MemoryChunk* CMemoryPoolManag::FindMemoryBlockByData( void* pMemory )
+{
+	MemoryChunk* pTemp = m_pFirstChunk;
+	while (pTemp != NULL)
+	{
+		if (pTemp->m_pData == pMemory)
 		{
 			return pTemp;
 		}

@@ -6,15 +6,21 @@
 //
 //////////////////////////////////////////////////////////////////////////
 
+#ifndef _MEMORY_POOL_MANAG_H_
+#define _MEMORY_POOL_MANAG_H_
+
+
+#include "IMemoryPool.h"
+#include <math.h>
+
 using namespace std;
 typedef unsigned char BYTE;
 
-struct MemoryChunk;
-class CMemoryPoolManag
+class CMemoryPoolManag : public IMemoryPool
 {
 public:
 	CMemoryPoolManag(const size_t& nMemoryPoolSize, const size_t& nOrignBlockSize);
-	~CMemoryPoolManag(void);
+	virtual ~CMemoryPoolManag(void);
 
 private:
 	void Initial(const size_t& nMemoryPoolSize);
@@ -30,7 +36,7 @@ private:
 	void* MallocMemory(const size_t& nMallocMemorySize);
 
 	// 将申请到的内存块分配到管理类中
-	void DistributeMemoryToChunk( BYTE* pOrignMemory, const size_t& nBlockCount );
+	MemoryChunk* DistributeMemoryToChunk( BYTE* pOrignMemory, const size_t& nBlockCount, const size_t& nTotalMallocMemorySize );
 
 
 private:
@@ -44,27 +50,31 @@ public:
 	//////////////////////////////////////////////////////////////////////////
 	//
 	//	根据用户申请的内存大小来分配，如果有足够大的内存则分配，否则再申请更大块的内存
+	//  
+	//	分配内存必定要是连续的内存块
 	//
 	/////////////////////////////////////////////////////////////////////////
-	void* GetMemory(const size_t& nNeedMemorySize);
-	void FreeMemory( MemoryChunk* pMemory );
+	virtual void* GetMemory(const size_t& nNeedMemorySize);
+	virtual void FreeMemory( void* pMemory );
 
 private:
-	//////////////////////////////////////////////////////////////////////////
-	//
-	//	修改每块内存块是否是被占用状态
-	//
-	////////////////////////////////////////////////////////////////////////
-	void ChangeChunkStat(MemoryChunk* pChunk, int nBlockCount, bool bAllocated);
+
+	// 重新计算每块内存可用的大小
 	void ReCalcAllBlockSize();
+	
+	// 
 	MemoryChunk* SkipChunks(MemoryChunk* pChunk, int nSkipChunkCount);
+	
+	// 检测某大块内存中是否有已经被分配的内存块
 	MemoryChunk* IsAllocated( MemoryChunk* pChunk, size_t nNeedBlockCount );
+
+	// 根据数据指针找到对应的管理类
+	MemoryChunk* FindMemoryBlockByData( void* pMemory );
+
 private:
 	// 内存管理链表集合
 	MemoryChunk* m_pFirstChunk;
-	MemoryChunk* m_pCurrentChunk;
 	MemoryChunk* m_pLastChunk;
-
 
 	// 所有申请原始内存块大小
 	size_t m_nMemoryPoolSize;
@@ -73,3 +83,5 @@ private:
 	// 每块原始内存大小
 	size_t m_nOrignBlockSize;	
 };
+
+#endif
